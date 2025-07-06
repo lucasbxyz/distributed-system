@@ -39,6 +39,7 @@ is_leader = False  # True if this node is the leader
 leader_id = None   # Node ID of the current leader
 last_leader_heartbeat = 0  # Timestamp of last heartbeat received from leader
 node_list = set()  # Track known nodes (for demo)
+node_ip_map = {}  # Maps node UUID to IP address
  
 # For leader: store latest sensor data from each node
 sensor_data_store = {}
@@ -96,9 +97,12 @@ def multicast_listener():
                 elif sender_id == leader_id:
                     last_leader_heartbeat = time.time()
             elif msg.startswith("NODE_ANNOUNCE:"):
-                sender_id = msg.split(":")[1]
+                parts = msg.split(":")
+                sender_id = parts[1]
+                sender_ip = parts[2] if len(parts) > 2 else addr[0]
                 node_list.add(sender_id)
-                print_status(f"Node discovered: {sender_id}")
+                node_ip_map[sender_id] = sender_ip
+                print_status(f"Node discovered: {sender_id} with IP {sender_ip}")
             elif msg.startswith("SENSOR_DATA:"):
                 # SENSOR_DATA:<node_id>:<heart_rate>:<temperature>
                 parts = msg.split(":")
@@ -138,7 +142,7 @@ def multicast_listener():
                 print_status(f"New leader announced: {leader_id}")
                 election_in_progress = False
                 leader_elected_event.set()
-            print_status(f"Received multicast from {addr}: {msg}")
+            print_status(f"Received multicast from {addr}: {msg}" + (" (self)" if addr[0] == NODE_IP or msg.endswith(str(NODE_ID)) else ""))
         except Exception as e:
             print_status(f"Multicast listener error: {e}")
             break
@@ -160,7 +164,9 @@ def monitor_heartbeats():
         if leader_id is not None and leader_id != NODE_ID:
             elapsed = time.time() - last_leader_heartbeat
             if elapsed > LEADER_TIMEOUT:
-                print_status(f"Leader {leader_id} is suspected dead (no heartbeat for {elapsed:.1f}s)")
+                print_status("==============================")
+                print_status(f"[ALERT] Leader {leader_id} is suspected dead! No heartbeat received for {elapsed:.1f} seconds.")
+                print_status("==============================")
                 if not election_in_progress:
                     threading.Thread(target=start_leader_election, daemon=True).start()
         time.sleep(1)
@@ -304,15 +310,18 @@ def tcp_alert_server():
 
 def send_critical_alert_to_leader(alert_msg):
     """Send a critical alert to the leader via TCP."""
-    if leader_id:
+    if leader_id and leader_id in node_ip_map:
+        leader_ip = node_ip_map[leader_id]
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                 s.settimeout(2)
-                s.connect((leader_id, ALERT_TCP_PORT))
+                s.connect((leader_ip, ALERT_TCP_PORT))
                 s.sendall(alert_msg.encode('utf-8'))
-                print_status(f"Sent critical alert to leader {leader_id} via TCP: {alert_msg}")
+                print_status(f"Sent critical alert to leader {leader_id} ({leader_ip}) via TCP: {alert_msg}")
         except Exception as e:
-            print_status(f"Failed to send critical alert to leader {leader_id} via TCP: {e}")
+            print_status(f"Failed to send critical alert to leader {leader_id} ({leader_ip}) via TCP: {e}")
+    else:
+        print_status(f"Leader IP address unknown for leader {leader_id}, cannot send critical alert.")
  
 # --- Console Output ---
 def print_status(msg):
@@ -330,14 +339,13 @@ def main():
     print_status("==============================")
     print_status("Distributed System Node Starting Up")
     print_status(f"Node started with UUID {NODE_ID} and IP {NODE_IP}")
-    print_status("==============================")
+    # Announce self to the network with both UUID and IP
+    announce_msg = f"NODE_ANNOUNCE:{NODE_ID}:{NODE_IP}"
+    multicast_send(announce_msg)
+    print_status(f"Sent announcement: {announce_msg}")
     # Start multicast listener thread
     listener_thread = threading.Thread(target=multicast_listener, daemon=True)
     listener_thread.start()
-    # Announce self to the network
-    announce_msg = f"NODE_ANNOUNCE:{NODE_ID}"
-    multicast_send(announce_msg)
-    print_status(f"Sent announcement: {announce_msg}")
     # Start heartbeat sender thread
     heartbeat_thread = threading.Thread(target=send_heartbeat, daemon=True)
     heartbeat_thread.start()
