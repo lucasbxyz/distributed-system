@@ -136,13 +136,16 @@ def multicast_listener():
                 leader_elected_event.set()
             elif msg.startswith("LEADER:"):
                 new_leader = msg.split(":")[1]
-                print_status(f"Received LEADER announcement: {new_leader}")
-                leader_id = new_leader
-                is_leader = (leader_id == NODE_ID)
-                last_leader_heartbeat = time.time()
-                print_status(f"New leader announced: {leader_id}")
-                election_in_progress = False
-                leader_elected_event.set()
+                if new_leader > NODE_ID:
+                    print_status(f"Received LEADER announcement: {new_leader}")
+                    leader_id = new_leader
+                    is_leader = (leader_id == NODE_ID)
+                    last_leader_heartbeat = time.time()
+                    print_status(f"New leader announced: {leader_id}")
+                    election_in_progress = False
+                    leader_elected_event.set()
+                else:
+                    print_status(f"Ignored LEADER announcement from {new_leader} (lower UUID than self)")
             elif msg.startswith("LEADER_ANNOUNCE:"):
                 parts = msg.split(":")
                 if len(parts) == 3:
@@ -331,6 +334,10 @@ def tcp_alert_server():
 
 def send_critical_alert_to_leader(alert_msg):
     """Send a critical alert to the leader via TCP."""
+    if is_leader:
+        print_status("Leader handling its own critical alert directly.")
+        broadcast_alert(f"{NODE_ID}:{alert_msg}")
+        return
     if leader_id and leader_id in node_ip_map:
         leader_ip = node_ip_map[leader_id]
         try:
