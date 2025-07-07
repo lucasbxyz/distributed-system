@@ -142,17 +142,29 @@ def multicast_listener():
             elif msg.startswith("LEADER:"):
                 new_leader = msg.split(":")[1]
                 if new_leader > NODE_ID:
+                    # Accept the new leader
                     print_status(f"Received LEADER announcement: {new_leader}")
                     leader_id = new_leader
                     is_leader = (leader_id == NODE_ID)
                     last_leader_heartbeat = time.time()
-                    # Update leader IP mapping from sender address
                     node_ip_map[new_leader] = addr[0]
                     print_status(f"New leader announced: {leader_id} with IP {addr[0]}")
                     election_in_progress = False
                     leader_elected_event.set()
+                elif new_leader < NODE_ID:
+                    # Ignore and start a new election if not already in progress
+                    print_status(f"Ignored LEADER announcement from {new_leader} (lower UUID than self). Starting new election.")
+                    if not election_in_progress:
+                        threading.Thread(target=start_leader_election, daemon=True).start()
                 else:
-                    print_status(f"Ignored LEADER announcement from {new_leader} (lower UUID than self)")
+                    # UUIDs are equal (should not happen), but accept self as leader
+                    print_status(f"Received LEADER announcement from self: {new_leader}")
+                    leader_id = new_leader
+                    is_leader = True
+                    last_leader_heartbeat = time.time()
+                    node_ip_map[new_leader] = addr[0]
+                    election_in_progress = False
+                    leader_elected_event.set()
             elif msg.startswith("LEADER_ANNOUNCE:"):
                 parts = msg.split(":")
                 if len(parts) == 3:
