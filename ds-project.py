@@ -141,7 +141,9 @@ def multicast_listener():
                     leader_id = new_leader
                     is_leader = (leader_id == NODE_ID)
                     last_leader_heartbeat = time.time()
-                    print_status(f"New leader announced: {leader_id}")
+                    # Update leader IP mapping from sender address
+                    node_ip_map[new_leader] = addr[0]
+                    print_status(f"New leader announced: {leader_id} with IP {addr[0]}")
                     election_in_progress = False
                     leader_elected_event.set()
                 else:
@@ -371,6 +373,8 @@ def main():
     announce_msg = f"NODE_ANNOUNCE:{NODE_ID}:{NODE_IP}"
     multicast_send(announce_msg)
     print_status(f"Sent announcement: {announce_msg}")
+    # Add a small random delay to reduce simultaneous elections at startup
+    time.sleep(random.uniform(0, 2))
     # Start multicast listener thread
     listener_thread = threading.Thread(target=multicast_listener, daemon=True)
     listener_thread.start()
