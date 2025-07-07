@@ -142,6 +142,13 @@ def multicast_listener():
                 print_status(f"New leader announced: {leader_id}")
                 election_in_progress = False
                 leader_elected_event.set()
+            elif msg.startswith("LEADER_ANNOUNCE:"):
+                parts = msg.split(":")
+                if len(parts) == 3:
+                    leader_uuid = parts[1]
+                    leader_ip = parts[2]
+                    node_ip_map[leader_uuid] = leader_ip
+                    print_status(f"Updated leader IP: {leader_uuid} -> {leader_ip}")
             print_status(f"Received multicast from {addr}: {msg}" + (" (self)" if addr[0] == NODE_IP or msg.endswith(str(NODE_ID)) else ""))
         except Exception as e:
             print_status(f"Multicast listener error: {e}")
@@ -224,6 +231,7 @@ def announce_leader():
     is_leader = True
     print_status(f"Announcing self as leader: {NODE_ID}")
     multicast_send(f"LEADER:{NODE_ID}")
+    multicast_send(f"LEADER_ANNOUNCE:{NODE_ID}:{NODE_IP}")
     print_status(f"Announced self as leader: {NODE_ID}")
  
 # --- Sensor Data Generation & Threshold Checking ---
