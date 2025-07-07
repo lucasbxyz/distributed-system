@@ -5,6 +5,7 @@ import random
 import struct
 import sys
 import uuid
+import signal
  
 # --- Utility Functions ---
 def get_local_ip():
@@ -155,9 +156,20 @@ def multicast_listener():
             break
  
 # --- Heartbeat Mechanism ---
+running = True
+
+def graceful_shutdown(signum, frame):
+    global running
+    print_status("Shutting down gracefully...")
+    running = False
+    sys.exit(0)
+
+signal.signal(signal.SIGINT, graceful_shutdown)
+signal.signal(signal.SIGTERM, graceful_shutdown)
+
 def send_heartbeat():
     """Send heartbeat messages to indicate this node is alive (leader or sensor)."""
-    while True:
+    while running:
         heartbeat_msg = f"HEARTBEAT:{NODE_ID}"
         multicast_send(heartbeat_msg)
         time.sleep(HEARTBEAT_INTERVAL)
@@ -167,7 +179,7 @@ def monitor_heartbeats():
     Monitor heartbeats from the leader. If the leader is unresponsive, start an election.
     """
     global last_leader_heartbeat, leader_id, is_leader
-    while True:
+    while running:
         if leader_id is not None and leader_id != NODE_ID:
             elapsed = time.time() - last_leader_heartbeat
             if elapsed > LEADER_TIMEOUT:
@@ -229,6 +241,7 @@ def announce_leader():
     global leader_id, is_leader
     leader_id = NODE_ID
     is_leader = True
+    node_ip_map[NODE_ID] = NODE_IP  # Ensure leader knows its own IP
     print_status(f"Announcing self as leader: {NODE_ID}")
     multicast_send(f"LEADER:{NODE_ID}")
     multicast_send(f"LEADER_ANNOUNCE:{NODE_ID}:{NODE_IP}")
@@ -268,7 +281,7 @@ def send_sensor_data():
     Non-leader nodes periodically generate and send their sensor data to the leader.
     Also check their own data for threshold violations.
     """
-    while True:
+    while running:
         if not is_leader and leader_id is not None:
             data = generate_sensor_data()
             msg = f"SENSOR_DATA:{NODE_ID}:{data['heart_rate']}:{data['temperature']}"
@@ -282,7 +295,7 @@ def collect_sensor_data():
     If this node is the leader, periodically generate its own data and check thresholds.
     Also stores latest data from all nodes (handled in listener).
     """
-    while True:
+    while running:
         if is_leader:
             data = generate_sensor_data()
             sensor_data_store[NODE_ID] = data
@@ -307,7 +320,7 @@ def tcp_alert_server():
     server_sock.bind((get_local_ip(), ALERT_TCP_PORT))
     server_sock.listen()
     print_status(f"Leader TCP alert server listening on port {ALERT_TCP_PORT}")
-    while True:
+    while running:
         conn, addr = server_sock.accept()
         with conn:
             alert_msg = conn.recv(1024).decode('utf-8')
@@ -372,8 +385,8 @@ def main():
     # Allow some time for messages to be received/printed
     time.sleep(2)
     # Main thread can be used for future extensions or just sleep
-    while True:
-        time.sleep(10)
+    while running:
+        time.sleep(1)
  
 if __name__ == "__main__":
     main()
