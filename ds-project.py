@@ -104,6 +104,11 @@ def multicast_listener():
                 node_list.add(sender_id)
                 node_ip_map[sender_id] = sender_ip
                 print_status(f"Node discovered: {sender_id} with IP {sender_ip}")
+                # Trigger leader election if the new node has a higher UUID than the current leader
+                if (leader_id is None or sender_id > leader_id) and sender_id != NODE_ID:
+                    print_status(f"New node {sender_id} has higher UUID than current leader {leader_id}. Starting leader election.")
+                    if not election_in_progress:
+                        threading.Thread(target=start_leader_election, daemon=True).start()
             elif msg.startswith("SENSOR_DATA:"):
                 # SENSOR_DATA:<node_id>:<heart_rate>:<temperature>
                 parts = msg.split(":")
@@ -393,11 +398,20 @@ def main():
     # Start TCP alert server thread (for leader only)
     tcp_server_thread = threading.Thread(target=tcp_alert_server, daemon=True)
     tcp_server_thread.start()
+    # Start periodic leader announce thread
+    leader_announce_thread = threading.Thread(target=periodic_leader_announce, daemon=True)
+    leader_announce_thread.start()
     # Allow some time for messages to be received/printed
     time.sleep(2)
     # Main thread can be used for future extensions or just sleep
     while running:
         time.sleep(1)
+ 
+def periodic_leader_announce():
+    while running:
+        if is_leader:
+            multicast_send(f"LEADER_ANNOUNCE:{NODE_ID}:{NODE_IP}")
+        time.sleep(5)  # Announce every 5 seconds
  
 if __name__ == "__main__":
     main()
